@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.env
+data/chroma_db/
+data/sample_docs/*
+!data/sample_docs/.gitkeep
+venv/
+.venv/
+*.egg-info/
