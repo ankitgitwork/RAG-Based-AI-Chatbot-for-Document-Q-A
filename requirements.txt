@@ -1,9 +1,7 @@
 streamlit>=1.35
-sentence-transformers==3.0.1
-transformers==4.44.2
-tokenizers>=0.19,<0.20
-huggingface_hub>=0.23,<0.25
+sentence-transformers>=3.0,<4.0
+transformers>=4.44,<5.0
+sentencepiece>=0.2.0
 torch>=2.2
 faiss-cpu>=1.8
 pypdf>=5.0
-sentencepiece>=0.2.0
