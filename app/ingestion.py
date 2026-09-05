@@ -2,6 +2,7 @@
 Ingestion pipeline: loads raw documents, splits them into overlapping
 chunks, embeds them, and writes them into a persistent Chroma vector store.
 """
+import re
 from pathlib import Path
 from typing import List
 
@@ -25,6 +26,8 @@ LOADER_MAP = {
     ".docx": Docx2txtLoader,
 }
 
+_MULTI_SPACE = re.compile(r"[ \t]{2,}")
+
 
 def load_documents(source_dir: str) -> List[Document]:
     """Load every supported file in source_dir into LangChain Documents."""
@@ -35,10 +38,25 @@ def load_documents(source_dir: str) -> List[Document]:
         loader_cls = LOADER_MAP.get(path.suffix.lower())
         if loader_cls is None:
             continue
-        loader = loader_cls(str(path))
+        if path.suffix.lower() == ".pdf":
+            # "layout" mode reconstructs spacing from each glyph's actual
+            # coordinates instead of the raw content-stream order. The
+            # default "plain" mode concatenates text runs with zero spacing
+            # whenever two elements (e.g. a name and a location field placed
+            # side by side in a resume header) don't contain an explicit
+            # space character between them — that's what turns "ANKIT SINGH"
+            # into "ANKITSINGH". Layout mode fixes that at the source instead
+            # of guessing at word boundaries after the fact.
+            loader = loader_cls(str(path), extraction_mode="layout")
+        else:
+            loader = loader_cls(str(path))
         loaded = loader.load()
         for d in loaded:
             d.metadata["source"] = path.name
+            if path.suffix.lower() == ".pdf":
+                # Layout mode pads with runs of spaces to preserve columns;
+                # collapse those back down for embedding/prompting.
+                d.page_content = _MULTI_SPACE.sub(" ", d.page_content)
         docs.extend(loaded)
     return docs
 
