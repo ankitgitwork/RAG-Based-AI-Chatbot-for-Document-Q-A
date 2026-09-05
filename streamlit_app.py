@@ -14,6 +14,7 @@ ground the answer in retrieved context -> generate.
 """
 
 import io
+import re
 
 import numpy as np
 import streamlit as st
@@ -21,6 +22,8 @@ from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline
 import faiss
+
+_MULTI_SPACE = re.compile(r"[ \t]{2,}")
 
 st.set_page_config(page_title="RAG Document Q&A", page_icon="📄", layout="wide")
 
@@ -50,7 +53,18 @@ def chunk_text(text: str, source: str):
 def extract_text(uploaded_file) -> str:
     if uploaded_file.name.lower().endswith(".pdf"):
         reader = PdfReader(io.BytesIO(uploaded_file.read()))
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
+        # "layout" mode reconstructs spacing from each glyph's real
+        # coordinates. The default mode concatenates text runs with zero
+        # spacing whenever two elements (e.g. a name and a location placed
+        # side by side in a resume header) have no explicit space character
+        # between them in the PDF content stream — that's what turns
+        # "ANKIT SINGH" into "ANKITSINGH". Layout mode avoids that.
+        text = "\n".join(
+            page.extract_text(extraction_mode="layout") or "" for page in reader.pages
+        )
+        # Layout mode pads columns with runs of spaces; collapse those back
+        # down before chunking/embedding.
+        return _MULTI_SPACE.sub(" ", text)
     return uploaded_file.read().decode("utf-8", errors="ignore")
 
 
@@ -112,12 +126,21 @@ else:
             sources = sorted({c["source"] for c in retrieved})
 
             prompt = (
-                "Answer the question using ONLY the context below. "
-                "If the answer is not contained in the context, say you "
-                "don't have enough information rather than guessing.\n\n"
+                "Answer the question using ONLY the context below. Give a "
+                "short, direct answer to exactly what was asked (a name, a "
+                "date, a number, a short phrase) — do not repeat the whole "
+                "context, and do not include unrelated details that happen "
+                "to sit next to the answer in the text. If the answer is "
+                "not contained in the context, say you don't have enough "
+                "information rather than guessing.\n\n"
+                "Example:\n"
+                "Context: Priya Nair, Pune, India | +91-9000000000 | "
+                "priya@example.com | 3 years experience in data analysis.\n"
+                "Question: what is name of the candidate\n"
+                "Answer: Priya Nair\n\n"
                 f"Context:\n{context}\n\nQuestion: {question}\nAnswer:"
             )
-            answer = generator(prompt)[0]["generated_text"]
+            answer = generator(prompt, truncation=True)[0]["generated_text"]
 
             st.session_state.history.insert(0, {
                 "question": question, "answer": answer, "sources": sources,
